@@ -1,5 +1,12 @@
 __pycache__/
 *.pyc
+*.pyo
+*.png
+*.log
 .venv/
 .streamlit/
 .DS_Store
+.jetro/
+.vscode/
+.ipynb_checkpoints/
+verify_map.txt
