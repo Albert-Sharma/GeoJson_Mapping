@@ -358,7 +358,7 @@ def main():
             help="Choose any state whose district GeoJSON is available in the source dataset.",
         )
 
-        group_count = st.slider("How many district groups?", min_value=1, max_value=5, value=2)
+        group_count = st.slider("How many district groups?", min_value=1, max_value=12, value=2)
 
         groups = []
         for i in range(group_count):
