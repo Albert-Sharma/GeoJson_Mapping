@@ -171,15 +171,29 @@ ALIASES = {
 
 
 def norm(name):
-    n = str(name).strip().upper()
+    if name is None:
+        return ""
+    n = str(name).strip()
+    n = re.sub(r"\s+", " ", n)
+    n = n.replace("-", " ")
+    n = n.upper()
     return ALIASES.get(n, n)
+
+
+def clean_district_name(name):
+    if name is None:
+        return ""
+    cleaned = str(name).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.replace(";", ",").replace("\n", ",")
+    return cleaned
 
 
 def parse_districts(raw_text):
     if raw_text is None:
         return []
-    cleaned = raw_text.replace(";", ",").replace("\n", ",")
-    parts = [p.strip() for p in cleaned.split(",")]
+    cleaned = clean_district_name(raw_text)
+    parts = [p.strip() for p in cleaned.replace(";", ",").split(",")]
     return [p for p in parts if p]
 
 
@@ -228,6 +242,7 @@ def generate_map(state_names, groups):
         gdf = load_state_data(state_name)
         district_col = find_name_col(gdf)
         state_df = gdf.rename(columns={district_col: "district"})[["district", "geometry"]].copy()
+        state_df["district"] = state_df["district"].astype(str)
         state_df["state"] = state_name
         frames.append(state_df)
 
@@ -248,6 +263,9 @@ def generate_map(state_names, groups):
     combined["fill"] = combined.apply(fill_for, axis=1)
     highlighted = set(district_color_map.keys())
 
+    # Normalize names in the data so matching is stable in deployed environments.
+    combined["district_norm"] = combined["district"].apply(norm)
+
     fig, ax = plt.subplots(figsize=(16, 16))
     combined.plot(ax=ax, color=combined["fill"], edgecolor="#444444", linewidth=0.6)
 
@@ -266,6 +284,9 @@ def generate_map(state_names, groups):
             color="white" if is_highlighted else "black",
             fontweight="bold" if is_highlighted else "normal",
         )
+
+    # Ensure the list of district names used in the UI reflects the normalized values.
+    combined = combined.drop(columns=["district_norm"], errors="ignore")
 
     ax.set_title(f"District Map — {', '.join(state_names)}", fontsize=18, fontweight="bold")
     ax.axis("off")
@@ -288,114 +309,118 @@ def generate_map(state_names, groups):
     return buf, combined, highlighted
 
 
-st.set_page_config(page_title="District Map Generator", layout="wide")
+def main():
+    st.set_page_config(page_title="District Map Generator", layout="wide")
 
-st.markdown('<div class="section-tag">GeoJSON Mapping Studio</div>', unsafe_allow_html=True)
-st.title("District Map Generator")
-st.caption("Configure state coverage, group districts by color, and export a clean PNG map for sharing.")
+    st.markdown('<div class="section-tag">GeoJSON Mapping Studio</div>', unsafe_allow_html=True)
+    st.title("District Map Generator")
+    st.caption("Configure state coverage, group districts by color, and export a clean PNG map for sharing.")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown(
-        """
-        <div class="metric-card">
-            <span style="color:#9fb3cf; font-size:0.82rem; text-transform:uppercase; letter-spacing:0.08em;">States</span>
-            <strong>India</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with col2:
-    st.markdown(
-        """
-        <div class="metric-card">
-            <span style="color:#9fb3cf; font-size:0.82rem; text-transform:uppercase; letter-spacing:0.08em;">Data source</span>
-            <strong>GeoJSON</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with col3:
-    st.markdown(
-        """
-        <div class="metric-card">
-            <span style="color:#9fb3cf; font-size:0.82rem; text-transform:uppercase; letter-spacing:0.08em;">Output</span>
-            <strong>PNG</strong>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with st.sidebar:
-    st.header("Map settings")
-    state_options = sorted(STATE_FOLDERS.keys())
-    selected_states = st.multiselect(
-        "Select states",
-        state_options,
-        default=["Madhya Pradesh", "Maharashtra"],
-        help="Choose any state whose district GeoJSON is available in the source dataset.",
-    )
-
-    group_count = st.slider("How many district groups?", min_value=1, max_value=5, value=2)
-
-    groups = []
-    for i in range(group_count):
-        st.markdown(f"### Group {i + 1}")
-        label = st.text_input(f"Group {i + 1} label", value=f"Group {i + 1}", key=f"label_{i}")
-        color = st.color_picker(f"Color for Group {i + 1}", value="#1b5e20", key=f"color_{i}")
-        district_text = st.text_area(
-            f"District names for Group {i + 1}",
-            height=110,
-            value="",
-            key=f"districts_{i}",
-            help="Enter district names separated by commas, semicolons, or new lines.",
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(
+            """
+            <div class="metric-card">
+                <span style="color:#9fb3cf; font-size:0.82rem; text-transform:uppercase; letter-spacing:0.08em;">States</span>
+                <strong>India</strong>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        groups.append({
-            "label": label,
-            "color": color,
-            "districts": parse_districts(district_text),
-        })
+    with col2:
+        st.markdown(
+            """
+            <div class="metric-card">
+                <span style="color:#9fb3cf; font-size:0.82rem; text-transform:uppercase; letter-spacing:0.08em;">Data source</span>
+                <strong>GeoJSON</strong>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with col3:
+        st.markdown(
+            """
+            <div class="metric-card">
+                <span style="color:#9fb3cf; font-size:0.82rem; text-transform:uppercase; letter-spacing:0.08em;">Output</span>
+                <strong>PNG</strong>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("---")
-    st.caption("The app automatically builds the GeoJSON URL from the selected state names and data folder names.")
+    with st.sidebar:
+        st.header("Map settings")
+        state_options = sorted(STATE_FOLDERS.keys())
+        selected_states = st.multiselect(
+            "Select states",
+            state_options,
+            default=["Madhya Pradesh", "Maharashtra"],
+            help="Choose any state whose district GeoJSON is available in the source dataset.",
+        )
 
-if not selected_states:
-    st.warning("Please choose at least one state to continue.")
-    st.stop()
+        group_count = st.slider("How many district groups?", min_value=1, max_value=5, value=2)
 
-if st.button("Generate district map", type="primary"):
-    non_empty_groups = [group for group in groups if group["districts"]]
-    if not non_empty_groups:
-        st.warning("Add at least one district name in one of the groups before generating the map.")
-        st.stop()
+        groups = []
+        for i in range(group_count):
+            st.markdown(f"### Group {i + 1}")
+            label = st.text_input(f"Group {i + 1} label", value=f"Group {i + 1}", key=f"label_{i}")
+            color = st.color_picker(f"Color for Group {i + 1}", value="#1b5e20", key=f"color_{i}")
+            district_text = st.text_area(
+                f"District names for Group {i + 1}",
+                height=110,
+                value="",
+                key=f"districts_{i}",
+                help="Enter district names separated by commas, semicolons, or new lines.",
+            )
+            groups.append({
+                "label": label,
+                "color": color,
+                "districts": parse_districts(district_text),
+            })
 
-    with st.spinner("Downloading district boundaries and rendering the map..."):
-        try:
-            image_buffer, combined_df, highlighted = generate_map(selected_states, non_empty_groups)
-        except Exception as exc:
-            st.error(f"Something went wrong while fetching or plotting the map: {exc}")
-            st.stop()
+        st.markdown("---")
+        st.caption("The app automatically builds the GeoJSON URL from the selected state names and data folder names.")
 
-    st.success("Map generated successfully.")
+    if not selected_states:
+        st.warning("Please choose at least one state to continue.")
+        return
 
-    st.markdown("### Preview")
-    st.image(image_buffer, caption="District map preview", use_container_width=True)
+    if st.button("Generate district map", type="primary"):
+        non_empty_groups = [group for group in groups if group["districts"]]
+        if not non_empty_groups:
+            st.warning("Add at least one district name in one of the groups before generating the map.")
+            return
 
-    all_group_names = {norm(d) for group in non_empty_groups for d in group["districts"]}
-    dataset_names = {norm(value) for value in combined_df["district"].tolist()}
-    missing = sorted({name for name in all_group_names if name not in dataset_names})
-    if missing:
-        st.warning("These district names were not found in the selected state data: " + ", ".join(missing[:20]))
+        with st.spinner("Downloading district boundaries and rendering the map..."):
+            try:
+                image_buffer, combined_df, _ = generate_map(selected_states, non_empty_groups)
+            except Exception as exc:
+                st.error(f"Something went wrong while fetching or plotting the map: {exc}")
+                return
 
-    image_buffer.seek(0)
-    file_name = "_".join(state.lower().replace(" ", "_") for state in selected_states) + "_district_map.png"
-    st.markdown("### Download")
-    st.download_button(
-        label="Download PNG",
-        data=image_buffer.getvalue(),
-        file_name=file_name,
-        mime="image/png",
-    )
+        st.success("Map generated successfully.")
 
-else:
-    st.info("Configure the settings on the left, then click Generate district map to create the image.")
+        st.markdown("### Preview")
+        st.image(image_buffer, caption="District map preview", width="stretch")
+
+        all_group_names = {norm(d) for group in non_empty_groups for d in group["districts"]}
+        dataset_names = {norm(value) for value in combined_df["district"].tolist()}
+        missing = sorted({name for name in all_group_names if name not in dataset_names})
+        if missing:
+            st.warning("These district names were not found in the selected state data: " + ", ".join(missing[:20]))
+
+        image_buffer.seek(0)
+        file_name = "_".join(state.lower().replace(" ", "_") for state in selected_states) + "_district_map.png"
+        st.markdown("### Download")
+        st.download_button(
+            label="Download PNG",
+            data=image_buffer.getvalue(),
+            file_name=file_name,
+            mime="image/png",
+        )
+    else:
+        st.info("Configure the settings on the left, then click Generate district map to create the image.")
+
+
+if __name__ == "__main__":
+    main()
